@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no, width=device-width">
+    <title>House Hunting</title>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=default"></script>
+    <script
+      src="https://maps.googleapis.com/maps/api/js?key=YOUR_API_KEY&callback=initMap&libraries=&v=weekly" 
+      defer
+    ></script>
+    <style>
+      .control-panel {
+          position: absolute;
+          top: 30px;
+          right: 20px;
+      }
+      
+      .control-entry {
+          width: 280px;
+          background-color: rgba(119, 136, 153, 0.8);
+          font-family: fantasy, sans-serif;
+          text-align: left;
+          color: white;
+          overflow: auto;
+          padding: 10px;
+          margin-bottom: 10px;
+      }
+      
+      .control-input {
+          margin-left: 120px;
+      }
+      
+      .control-input input[type="text"] {
+          width: 160px;
+      }
+      
+      .control-panel label {
+          float: left;
+          width: 120px;
+      }
+      
+      #transfer-panel {
+          position: absolute;
+          background-color: white;
+          max-height: 80%;
+          overflow-y: auto;
+          top: 30px;
+          left: 20px;
+          width: 250px;
+      }
+  </style>
+  </head>
+
+  <body>
+    <div id="map"></div>
+    <div id="container"></div>
+    <div class="control-panel">
+        <div class="control-entry">
+            <label>Work Location：</label>
+            <div class="control-input">
+                <input id="work-location" type="text">
+            </div>
+        </div>
+        <div class="control-entry">
+            <label>Commute：</label>
+            <div class="control-input">
+                <input type="radio" name="vehicle" value="SUBWAY,BUS" onClick="takeBus(this)" checked/> Subway+Bus
+                <input type="radio" name="vehicle" value="SUBWAY" onClick="takeSubway(this)" /> Subway
+            </div>
+        </div>
+        <div class="control-entry">
+            <label>Upload file：</label>
+            <div class="control-input">
+                <input type="file" name="file" onChange="importRentInfo(this)" />
+            </div>
+        </div>
+    </div>
+    <div id="transfer-panel"></div>
+
+    <script>
+        // Initialize map
+        var map = new google.maps.Map(document.getElementById("map"), {
+            /* Set Toronto as the map center */
+            center: {  
+              lat: -79.347015,
+              lng: 43.651070
+            },
+            scaleControl: true,
+            zoom: 8
+        });
+ 
+ 
+        var arrivalRange = new google.maps.getBounds(); //Public Transport Arrival Range
+        var x, y, t, vehicle = "SUBWAY,BUS"; 
+        var workAddress, workMarker; 
+        var rentMarkerArray = []; //house lists
+        var polygonArray = []; 
+        var mapTransfer; 
+ 
+        // info window
+        var infoWindow = new google.maps.InfoWindow({
+            pixelOffset: new google.maps.Size(0, -30)
+        });
+ 
+        // provides place predictions based on a user's text input 
+        var auto = new google.maps.places.Autocomplete({
+            input: "work-location"
+        });
+ 
+        // worklocationselected is called after selecting address
+        google.maps.event.addListener(auto, "select", workLocationSelected);
+ 
+ 
+        function takeBus(radio) {
+            vehicle = radio.value;
+            loadWorkLocation()
+        }
+ 
+        function takeSubway(radio) {
+            vehicle = radio.value;
+            loadWorkLocation()
+        }
+ 
+        // loadRentLocationByFile is called
+        function importRentInfo(fileInfo) {
+            var file = fileInfo.files[0].name;
+            loadRentLocationByFile(file);
+        }
+ 
+        function workLocationSelected(e) {
+            workAddress = e.poi.name;
+            loadWorkLocation(); 
+        }
+ 
+        // mark the work location on the map
+        function loadWorkMarker(x, y, locationName) {
+            workMarker = new google.maps.Marker({
+                map: map,
+                title: locationName,
+                icon: 'https://developers.google.com/maps/documentation/javascript/examples/full/images/beachflag.png',
+                position: [x, y]
+            });
+        }
+ 
+ 
+        // load work range
+        function loadWorkRange(x, y, t, color, v) {
+            arrivalRange.search([x, y], t, function(status, result) {
+                if (result.bounds) {
+                    for (var i = 0; i < result.bounds.length; i++) {
+                        var polygon = google.maps.Polygon({
+                            map: map,
+                            fillColor: color,
+                            fillOpacity: "0.4",
+                            strokeColor: color,
+                            strokeOpacity: "0.8",
+                            strokeWeight: 1
+                        });
+                        polygon.setPath(result.bounds[i]);
+                        polygonArray.push(polygon);
+                    }
+                }
+            });
+        }
+ 
+        function addMarkerByAddress(address) {
+            var geocoder = new google.maps.Geocoder({
+                city: "Toronto",
+                radius: 1000
+            });
+            geocoder.getLocation(address, function(status, result) {
+                if (status === "complete" && result.info === 'OK') {
+                    var geocode = result.geocodes[0];
+                    rentMarker = new google.maps.Marker({
+                        map: map,
+                        title: address,
+                        icon: 'https://developers.google.com/maps/documentation/javascript/examples/full/images/beachflag.png',
+                        position: [geocode.location.getLng(), geocode.location.getLat()]
+                    });
+                    rentMarkerArray.push(rentMarker);
+ 
+                    rentMarker.content = "<div>Source：<a target = '_blank' href='https://www.kijiji.ca/b-for-rent/city-of-toronto/?key=" + address + "'>" + address + "</a><div>"
+                    rentMarker.on('click', function(e) {
+                        infoWindow.setContent(e.target.content);
+                        infoWindow.open(map, e.target.getPosition());
+                        if (mapTransfer) mapTransfer.clear();
+                        mapTransfer = new google.maps.TransitOptions({
+                            map: map,
+                            policy: google.maps.TransitRoutePreference.LESS_WALKING,
+                            city: "Toronto",
+                            panel: 'transfer-panel'
+                        });
+                        mapTransfer.search([{
+                            keyword: workAddress
+                        }, {
+                            keyword: address
+                        }], function(status, result) {})
+                    });
+                }
+            })
+        }
+ 
+        function delWorkLocation() {
+            if (polygonArray) map.remove(polygonArray);
+            if (workMarker) map.remove(workMarker);
+            polygonArray = [];
+        }
+ 
+        function delRentLocation() {
+            if (rentMarkerArray) map.remove(rentMarkerArray);
+            rentMarkerArray = [];
+        }
+ 
+        function loadWorkLocation() {
+            delWorkLocation();
+            var geocoder = new google.maps.Geocoder({
+                city: "Toronto",
+                radius: 1000
+            });
+ 
+            geocoder.getLocation(workAddress, function(status, result) {
+                if (status === "complete" && result.info === 'OK') {
+                    var geocode = result.geocodes[0];
+                    x = geocode.location.getLng();
+                    y = geocode.location.getLat();
+                    loadWorkMarker(x, y);
+                    loadWorkRange(x, y, 60, "#3f67a5", vehicle);
+                    map.setZoomAndCenter(12, [x, y]);
+                }
+            })
+        }
+ 
+        // load house locaiton
+        function loadRentLocationByFile(fileName) {
+            delRentLocation();
+            var rent_locations = new Set();
+            $.get(fileName, function(data) {
+                data = data.split("\n");
+                data.forEach(function(item, index) {
+                    rent_locations.add(item.split(",")[1]);
+                });
+                rent_locations.forEach(function(element, index) {
+                    addMarkerByAddress(element); 
+                });
+            });
+        }
+    </script>
+  </body>
+</html>
